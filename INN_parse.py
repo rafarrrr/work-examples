@@ -1,7 +1,6 @@
 from dadata import Dadata
 from datetime import datetime
 import pandas as pd
-import json
 
 
 with open('C:\\!Равшан_работа\\OMT Consult\\Карты\\inn.txt', 'r',  encoding='utf-8-sig') as w:
@@ -82,5 +81,3 @@ df.status_itn = df[df['status_itn'] != ''].status_itn.map(lambda x: dict_status[
 df.reset_index(level=0, inplace=True)
 df.rename(columns={'index': 'itn'}, inplace=True)
 df.to_excel('C:\\!Равшан_работа\\OMT Consult\\Карты\\data_inn_112.xlsx', encoding='utf-8-sig', index=False)
-
-#комментарий

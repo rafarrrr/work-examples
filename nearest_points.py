@@ -1,29 +1,11 @@
 import pandas as pd
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
-import mysql.connector
 from mysql.connector import Error
 from psycopg2 import OperationalError
-import psycopg2
 from connection_db import connection
 from connection_db import connection1
 import os
-import openpyxl
-
-
-# def create_connection(host_name, user_name, user_password, db_name):  # Создание подключения к БД Паркон
-# 	connection = None
-# 	try:
-# 		connection = mysql.connector.connect(
-# 			host=host_name,
-# 			user=user_name,
-# 			passwd=user_password,
-# 			database=db_name
-# 		)
-# 		print("Connection to MySQL DB successful")
-# 	except Error as e:
-# 		print(f"The error '{e}' occurred")
-# 	return connection
 
 
 def execute_read_query(connection, query):  # Создание запроса
@@ -36,22 +18,6 @@ def execute_read_query(connection, query):  # Создание запроса
 		return result
 	except Error as e:
 		print(f"The error '{e}' occurred")
-
-
-# def create_connection1(db_name, db_user, db_password, db_host, db_port): # Создание подключения к Datomt
-# 	connection = None
-# 	try:
-# 		connection = psycopg2.connect(
-#             database=db_name,
-#             user=db_user,
-#             password=db_password,
-#             host=db_host,
-#             port=db_port,
-#         )
-# 		print("Connection to PostgreSQL DB successful")
-# 	except OperationalError as e:
-# 		print(f"The error '{e}' occurred")
-# 	return connection
 
 
 def execute_read_query1(connection, query): # Запрос к datomt
