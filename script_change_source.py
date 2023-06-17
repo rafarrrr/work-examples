@@ -1,4 +1,4 @@
-import datetime
+from datetime import timedelta, datetime
 import pandas as pd
 from psycopg2 import OperationalError
 from connection_db import connection1
@@ -78,13 +78,13 @@ def main():
 		""" Получаем информацию по АЗС и проверяем брендовые/типовое топливо на идентичность и равную цену """
 		if product_id in dict_fuel_comparison:
 			for i in dict_fuel_comparison[product_id]:
-				if i in list(df01[(df01['source'] == source) & (df01['date_upd'] == datetime.datetime.now().date()) &
+				if i in list(df01[(df01['source'] == source) & (df01['date_upd'] == datetime.now().date()) &
 								  (df01['station_id'] == station_id) & (df01['show_in_report'] == 't')]['product_id']):
 
-					if df01[(df01['source'] == source) & (df01['date_upd'] == datetime.datetime.now().date()) &
+					if df01[(df01['source'] == source) & (df01['date_upd'] == datetime.now().date()) &
 							(df01['product_id'] == i) & (df01['station_id'] == station_id) &
 							(df01['show_in_report'] == 't')]['price'].values[0] == \
-						df01[(df01['source'] == source) & (df01['date_upd'] == datetime.datetime.now().date()) &
+						df01[(df01['source'] == source) & (df01['date_upd'] == datetime.now().date()) &
 							 (df01['product_id'] == product_id) & (df01['station_id'] == station_id)]['price'].values[
 							0]:
 						return i
@@ -151,35 +151,35 @@ def main():
 	df_1 = df01.loc[
 		(df01['source'].isin(
 			['api_azsgo', 'api_azsopti', 'api_yandex_fuel', 'api_benzuber', 'api_yandex_other', 'manual_app',
-			 'manual_manual', 'manual_phone', 'manual_ppr', 'manual_gazprom', 'manual_other', 'api_licard']))
+			 'manual_manual', 'manual_ppr', 'manual_gazprom', 'api_licard']))
 		& (df01['show_in_report'] == 't') & (
-			df01['date_upd'] < datetime.datetime.now().date() - datetime.timedelta(days=6))]
-	list_off_source = []
-	for i in df_1['station_id'].unique():
-		for j in df_1[df_1['station_id'] == i]['product_id']:
-			list_off_source.append(
-				('update gs__station_product set show_in_report = \'f\' where station_id = ' + str(i) +
-				 ' and source_type = \'' + df_1[df_1['station_id'] == i]['source'].unique() +
-				 '\' and product_id = ' + str(j) + ';')[0])
-	# Запись изменений - удаление старых цен в БД
-	for i in range(len(list_off_source)):
-		for j in list_off_source[i: i + 1]:
-			update_query(connection1(), j)
+			df01['date_upd'] < datetime.now().date() - timedelta(days=6))]
 
-	# Формирование ДФ с датами обновления цены более 18 дней назад
-	df_2 = df01.loc[(df01['source'].isin(['api_ppr', 'api_rncard'])) & (df01['show_in_report'] == 't') &
-					(df01['date_upd'] <= datetime.datetime.now().date() - datetime.timedelta(days=17))]
-	list_off_source1 = []
-	for i in df_2['station_id'].unique():
-		for j in df_2[df_2['station_id'] == i]['product_id']:
-			list_off_source1.append(
-				('update gs__station_product set show_in_report = \'f\' where station_id = ' + str(i) +
-				 ' and source_type = \'' + df_2[df_2['station_id'] == i]['source'].unique() +
-				 '\' and product_id = ' + str(j) + ';')[0])
+	# новый блок - замена списка запросов на один
+	st_for_upd_01 = [
+		f"""(station_id = {df_1.station_id.iloc[i]} AND source_type = '{df_1.source.iloc[i]}' AND product_id = {df_1.product_id.iloc[i]}) OR"""
+		for i in range(df_1.shape[0])]
+
+	conv_string = ' '.join(st_for_upd_01)[:-3] + ';'
+	price_off1 = f"""UPDATE gs__station_product SET show_in_report = 'f' where """ + conv_string
 	# Запись изменений - удаление старых цен в БД
-	for i in range(len(list_off_source1)):
-		for j in list_off_source1[i: i + 1]:
-			update_query(connection1(), j)
+	if st_for_upd_01:
+		update_query(connection1(), price_off1)
+
+	# # Формирование ДФ с датами обновления цены более 18 дней назад
+	df_2 = df01.loc[(df01['source'].isin(['api_ppr', 'api_rncard', 'manual_other', 'manual_phone'])) &
+					(df01['show_in_report'] == 't') &
+					(df01['date_upd'] <= datetime.now().date() - timedelta(days=17))]
+
+	# новый блок - замена списка запросов на один
+	st_for_upd_02 = [
+		f"""(station_id = {df_2.station_id.iloc[i]} AND source_type = '{df_2.source.iloc[i]}' AND product_id = {df_2.product_id.iloc[i]}) OR"""
+		for i in range(df_2.shape[0])]
+	conv_string = ' '.join(st_for_upd_02)[:-3] + ';'
+	price_off2 = f"""UPDATE gs__station_product SET show_in_report = 'f' where """ + conv_string
+	# Запись изменений - удаление старых цен в БД
+	if st_for_upd_02:
+		update_query(connection1(), price_off2)
 
 	# Отправляем новый запрос, обновляя df01 после отключения источников
 	prices = execute_read_query1(connection1(), query_datomt)
@@ -191,7 +191,7 @@ def main():
 	# Формируются два ДФ и выделяется список АЗС, по которым не включены цены
 	df02 = pd.DataFrame({'station_id': df01[df01['show_in_report'] == 't']['station_id'].unique()})
 	df03 = pd.DataFrame({'station_id': df01[(df01['show_in_report'] == 'f') & (df01['price'] > 0) & \
-											(df01['date_upd'] == datetime.datetime.now().date())][
+											(df01['date_upd'] == datetime.now().date())][
 		'station_id'].unique()})
 	df04 = df03[~df03['station_id'].isin(df02['station_id'])]
 	# Формируется датафрейм с полями: общее кол-во видов топлива по АЗС, источник цены и количество источников цен на АЗС
@@ -199,7 +199,7 @@ def main():
 		{'count_fuel': df01[df01['station_id'].isin(df04['station_id'])].groupby(['station_id', 'source', 'date_upd'])
 		.size()}).reset_index()
 	df005 = df05.groupby(['station_id', 'source'])['count_fuel'].sum().reset_index()
-	df06 = df05[df05['date_upd'] == datetime.datetime.now().date()].reset_index()
+	df06 = df05[df05['date_upd'] == datetime.now().date()].reset_index()
 	df06 = df06.drop(['index'], axis=1)
 	df06.loc[:, ['check', 'count_err']] = ''
 	df07 = df06.groupby(['station_id'])['source'].count().reset_index().rename({'source': 'amount'}, axis=1)
@@ -225,49 +225,63 @@ def main():
 	except Exception:
 		df09 = df08
 
-	# Формируем список UPDATE для записи в БД
-	list_price_not_source = []
-	for k, i in enumerate(df09['station_id']):
-		if ''.join(df09[df09['station_id'] == i]['source']) != 'api_ppr':
-			if (df09[df09['station_id'] == i]['check'] == 'OK')[k] and \
-				(df09[df09['station_id'] == i]['count_err'] == '')[k]:
-				list_price_not_source.append(
-					('update gs__station_product set show_in_report = \'t\' where station_id = ' +
-					 str(i) + ' and source_type = \'' + df09[df09['station_id'] == i]['source'] +
-					 '\' and DATE(updated_at) = CURRENT_DATE;')[k])
-			elif (df09[df09['station_id'] == i]['count_err'] != '')[k]:
-				for j in df01[(df01['station_id'] == i) & (df01['source'] == df09.loc[k, ['source']].values[0])][
-					'product_id']:
-					if check_price_product(df09.loc[k, ['source']].values[0], i, j) is not None:
-						list_price_not_source.append(
-							('update gs__station_product set show_in_report = \'t\' where station_id = '
-							 + str(i) + ' and source_type = \'' + df09[df09['station_id'] == i]['source'] +
-							 '\' and product_id = ' + str(check_price_product(df09.loc[k, ['source']].values[0], i, j))
-							 + ' and DATE(updated_at) = CURRENT_DATE;')[k])
-		else:
-			if (df09[df09['station_id'] == i]['check'] == 'OK')[k] and \
-				(df09[df09['station_id'] == i]['count_err'] == '')[
-					k]:
-				list_price_not_source.append(
-					('update gs__station_product set show_in_report = \'t\' where station_id = '
-					 + str(i) + ' and source_type = \'' + df09[df09['station_id'] == i]['source']
-					 + '\' and DATE(updated_at) BETWEEN CURRENT_DATE-14 AND CURRENT_DATE;')[k])
-			elif (df09[df09['station_id'] == i]['count_err'] != '')[k]:
-				for j in df01[(df01['station_id'] == i) & (df01['source'] == df09.loc[k, ['source']].values[0])][
-					'product_id']:
-					if check_price_product(df09.loc[k, ['source']].values[0], i, j) is not None:
-						list_price_not_source.append(('update gs__station_product set show_in_report = \'t\' where '
-													  'station_id = ' + str(i) + ' and source_type = \'' +
-													  df09[df09['station_id'] == i]['source'] + '\' and product_id = ' +
-													  str(check_price_product(df09.loc[k, ['source']].values[0], i,
-																			  j)) +
-													  ' and DATE(updated_at) BETWEEN CURRENT_DATE-14 AND CURRENT_DATE;')[
-														 k])
+	# замена старого блока с циклом и объединением в меньшее количество запросов
+	df__10 = df09[(df09['check'] == 'OK') & (df09['count_err'] == '') & (df09['source'] != 'api_ppr')]
+	df__11 = df09[(df09['check'] == 'OK') & (df09['count_err'] == '') & (df09['source'] == 'api_ppr')]
+	# новый блок - замена списка запросов на один
+	st_for_upd1 = [f"""(station_id = {df__10.station_id.iloc[i]} AND source_type = '{df__10.source.iloc[i]}' \
+	AND DATE(updated_at) = CURRENT_DATE) OR"""
+				   for i in range(df__10.shape[0])]
 
+	conv_string1 = ' '.join(st_for_upd1)[:-3] + ';'
+	price_on1 = f"""UPDATE gs__station_product SET show_in_report = 't' where """ + conv_string1
+
+	st_for_upd2 = [f"""(station_id = {df__11.station_id.iloc[i]} AND source_type = '{df__11.source.iloc[i]}' \
+	AND DATE(updated_at) BETWEEN CURRENT_DATE-14 AND CURRENT_DATE) OR"""
+				   for i in range(df__11.shape[0])]
+
+	conv_string2 = ' '.join(st_for_upd2)[:-3] + ';'
+	price_on2 = f"""UPDATE gs__station_product SET show_in_report = 't' where """ + conv_string2
 	# Запись изменений по источникам цен в БД
-	for i in range(len(list_price_not_source)):
-		for j in list_price_not_source[i: i + 1]:
-			update_query(connection1(), j)
+	if st_for_upd1:
+		update_query(connection1(), price_on1)
+	if st_for_upd2:
+		update_query(connection1(), price_on2)
+
+	# Включаем цены по каждому продукту в тех АЗС, где есть ошибки у одной или более позиций
+	df__12 = df09[(df09['count_err'] != '') & (df09['source'] != 'api_ppr')].reset_index(level=0, drop=True)
+	st_for_upd3 = []
+	for k, i in enumerate(df__12['station_id']):
+		for j in (df01[(df01['station_id'] == df__12.loc[k, ['station_id']].values[0]) & \
+					   (df01['source'] == df__12.loc[k, ['source']].values[0])]['product_id']):
+			if check_price_product(df__12.loc[k, ['source']].values[0], df__12.loc[k, ['station_id']].values[0],
+								   j) is not None:
+				st_for_upd3.append(
+					f"""(station_id = {i} AND source_type = '{df__12.source.iloc[k]}' AND product_id = {j} AND DATE(updated_at) = CURRENT_DATE) OR""")
+
+	conv_string3 = ' '.join(st_for_upd3)[:-3] + ';'
+	price_on3 = f"""UPDATE gs__station_product SET show_in_report = 't' where """ + conv_string3
+	# Запись изменений по источникам цен в БД
+	if st_for_upd3:
+		update_query(connection1(), price_on3)
+
+	# Включаем цены по каждому продукту в тех АЗС, где есть ошибки у одной или более позиций источник ППР
+	df__13 = df09[(df09['check'] == 'OK') & (df09['count_err'] != '') & (df09['source'] == 'api_ppr')].reset_index(
+		level=0, drop=True)
+	st_for_upd4 = []
+	for k, i in enumerate(df__13['station_id']):
+		for j in (df01[(df01['station_id'] == df__13.loc[k, ['station_id']].values[0]) & \
+					   (df01['source'] == df__13.loc[k, ['source']].values[0])]['product_id']):
+			if check_price_product(df__13.loc[k, ['source']].values[0], df__13.loc[k, ['station_id']].values[0],
+								   j) is not None:
+				st_for_upd4.append(
+					f"""(station_id = {i} AND source_type = '{df__13.source.iloc[k]}' AND product_id = {j} AND DATE(updated_at) BETWEEN CURRENT_DATE-14 AND CURRENT_DATE) OR""")
+
+	conv_string4 = ' '.join(st_for_upd4)[:-3] + ';'
+	price_on4 = f"""UPDATE gs__station_product SET show_in_report = 't' where """ + conv_string4
+	# Запись изменений по источникам цен в БД
+	if st_for_upd4:
+		update_query(connection1(), price_on4)
 
 	# Включение цен, по которым уже есть источник цен, но появились новые виды топлива на текущую дату.
 	# Формируются два ДФ и выделяется список АЗС, где некоторые виды топлива не включены.
@@ -279,46 +293,49 @@ def main():
 
 	# Формируем ДФ с источниками, которые не идут в отчёт
 	df11 = pd.DataFrame({'count_fuel_false': df01[
-		(df01['show_in_report'] == 'f') & (df01['price'] > 0) & (df01['date_upd'] == datetime.datetime.now().date())]
+		(df01['show_in_report'] == 'f') & (df01['price'] > 0) & (df01['date_upd'] == datetime.now().date())]
 						.groupby(['station_id', 'source']).size()}).reset_index()
 
 	# Объединяем датафреймы
 	df12 = df10.merge(df11, on=['station_id', 'source'], how='inner')
+
+	#### Изменил создание записи запроса для уменьшения обращений к БД  #####
 	# Формирование списка кода UPDATE для БД
 	list_new_product_price = []
 	for k, i in enumerate(df12['station_id']):
-		for j in df01[(df01['station_id'] == i) & (df01['date_upd'] == datetime.datetime.now().date()) &
+		for j in df01[(df01['station_id'] == i) & (df01['date_upd'] == datetime.now().date()) &
 					  (df01['show_in_report'] == 'f') & (df01['source'] == df12.loc[k, 'source'])]['product_id']:
 			if check_price_product(df12.loc[k, ['source']].values[0], i, j) is not None and \
 				check_fuel_comparison(df12.loc[k, ['source']].values[0], i, j) is None:
 				list_new_product_price.append(
-					('update gs__station_product set show_in_report = \'t\' where station_id = '
-					 + str(i) + ' and source_type = \'' + df12[df12['station_id'] == i][
-						 'source'] + '\' and product_id = ' + str(
-							check_price_product(df12.loc[k, ['source']].values[0], i, j)) +
-					 ' and DATE(updated_at) = CURRENT_DATE;')[k])
+					f"""(station_id = {str(i)} and source_type = '{df12[df12['station_id'] == i]['source'].values[0]}' \
+	and product_id = {str(check_price_product(df12.loc[k, ['source']].values[0], i, j))} and DATE(updated_at) = CURRENT_DATE) OR""")
 
 	# Дополнительно отключаем старые цены по источникам в df12
-	df13 = df12[~df12['source'].isin(['api_ppr', 'api_rncard'])]
+	df13 = df12[~df12['source'].isin(['api_ppr', 'api_api_rncard'])]
 	list_off_product_price1 = []
 	for k, i in enumerate(df13['station_id']):
-		if not df01[(df01['station_id'] == i) & (df01['date_upd'] < datetime.datetime.now().date()) & (
-			df01['show_in_report'] == 't') & (df01['source'] == df13[df13['station_id'] == i]['source'].values[0])][
-			'product_id'].empty:
-			for j in df01[(df01['station_id'] == i) & (df01['date_upd'] < datetime.datetime.now().date()) &
+		if \
+		df01[(df01['station_id'] == i) & (df01['date_upd'] < datetime.now().date()) & (df01['show_in_report'] == 't') &
+			 (df01['source'] == df13[df13['station_id'] == i]['source'].values[0])]['product_id'].empty == False:
+			for l in df01[(df01['station_id'] == i) & (df01['date_upd'] < datetime.now().date()) &
 						  (df01['show_in_report'] == 't') & (
 							  df01['source'] == df13[df13['station_id'] == i]['source'].values[0])]['product_id']:
 				list_off_product_price1.append(
-					('update gs__station_product set show_in_report = \'f\' where station_id = '
-					 + str(i) + ' and source_type = \'' + df13[df13['station_id'] == i][
-						 'source'] + '\' and product_id = ' + str(j) + ';').values[0])
+					f"""(station_id = {str(i)} and source_type = '{df13[df13['station_id'] == i]['source'].values[0]}' \
+	and product_id = {str(l)}) OR""")
 
-	# Объединяем списки
-	list_new = [*list_new_product_price, *list_off_product_price1]
+	conv_string5 = (' ').join(list_new_product_price)[:-3] + ';'
+	price_on5 = f"""UPDATE gs__station_product SET show_in_report = 't' where """ + conv_string5
 	# Запись изменений по источникам цен в БД
-	for i in range(len(list_new)):
-		for j in list_new[i: i + 1]:
-			update_query(connection1(), j)
+	if list_new_product_price:
+		update_query(connection1(), price_on5)
+
+	conv_string6 = ' '.join(list_off_product_price1)[:-3] + ';'
+	price_off6 = f"""UPDATE gs__station_product SET show_in_report = 'f' where """ + conv_string6
+	# Запись изменений по источникам цен в БД
+	if list_off_product_price1:
+		update_query(connection1(), price_off6)
 
 	# Замена недостоверных источников на достоверные.
 	# Формируется два ДФ для замены одних источников на другие.
@@ -330,7 +347,7 @@ def main():
 	df16 = df14.merge(df15, on='station_id', how='left')
 	df16 = df16.loc[df16['count_source'] == 1, ['station_id', 'source', 'count_source']]
 	df17 = pd.DataFrame({'count_fuel_false': df01[(df01['show_in_report'] == 'f') & (df01['price'] > 0) &
-												  (df01['date_upd'] == datetime.datetime.now().date()) &
+												  (df01['date_upd'] == datetime.now().date()) &
 												  (df01['source'].isin(['api_azsgo', 'api_benzuber', 'api_yandex_fuel',
 																		'api_azsopti', 'api_licard']))]
 						.groupby(['station_id', 'source']).size()}).reset_index()
@@ -351,23 +368,30 @@ def main():
 	df002 = df002.set_index('station_id')
 	df19.update(df002)
 	df20 = df19[df19['count_source'] == 1].reset_index()
+
 	# Отключаем цены по недоствоерным источникам и включаем достоверные:
+	list_on_source_unreliable = [
+		f"""(station_id = {df20.loc[i]['station_id']} and source_type = '{df20.loc[i]['source_x']}') OR"""
+		for i in df20.index]
+	conv_string7 = ' '.join(list_on_source_unreliable)[:-3] + ';'
+	price_off7 = f"""UPDATE gs__station_product SET show_in_report = 'f' where """ + conv_string7
+
+	if list_on_source_unreliable:
+		update_query(connection1(), price_off7)
+
 	list_off_source_unreliable = []
 	for k, i in enumerate(df20['station_id'].unique()):
-		list_off_source_unreliable.append(
-			('update gs__station_product set show_in_report = \'f\' where station_id = ' + str(i) +
-			 ' and source_type = \'' + df20[df20['station_id'] == i]['source_x'].unique() + '\';')[0])
-		for j in df01[(df01['station_id'] == i) & (df01['date_upd'] == datetime.datetime.now().date()) &
+		for j in df01[(df01['station_id'] == i) & (df01['date_upd'] == datetime.now().date()) &
 					  (df01['show_in_report'] == 'f') & (df01['source'] == df20.loc[k, 'source_y'])]['product_id']:
 			if check_price_product(df20.loc[k, ['source_y']].values[0], i, j) is not None:
-				list_off_source_unreliable.append(
-					('update gs__station_product set show_in_report = \'t\' where station_id = '
-					 + str(i) + ' and source_type = \'' + df20[df20['station_id'] == i]['source_y'] +
-					 '\' and product_id = ' + str(j) + ' and DATE(updated_at) = CURRENT_DATE;')[k])
-	# Запись изменений по источникам цен в БД
-	for i in range(len(list_off_source_unreliable)):
-		for j in list_off_source_unreliable[i: i + 1]:
-			update_query(connection1(), j)
+				list_off_source_unreliable.append(f"""(station_id = {i} and source_type = '{df20.loc[k]['source_y']}' and \
+	product_id = {j} and DATE(updated_at) = CURRENT_DATE) OR""")
+
+	conv_string8 = ' '.join(list_off_source_unreliable)[:-3] + ';'
+	price_on8 = f"""UPDATE gs__station_product SET show_in_report = 't' where """ + conv_string8
+
+	if list_off_source_unreliable:
+		update_query(connection1(), price_on8)
 
 	# Switch off source yandex_fuel and switch on - benzuber if count fuel more then yandex_fuel
 	# Формируется 2 ДФ для замены одних источников на другие
@@ -376,40 +400,43 @@ def main():
 						groupby(['station_id', 'source']).size()}).reset_index()
 	df22 = pd.DataFrame(
 		{'count_fuel_true': df01[(df01['show_in_report'] == 'f') & (df01['source'].isin(['api_benzuber'])) &
-								 (df01['date_upd'] == datetime.datetime.now().date())]. \
-		groupby(['station_id', 'source']).size()}).reset_index()
+								 (df01['date_upd'] == datetime.now().date())]. \
+			groupby(['station_id', 'source']).size()}).reset_index()
 	df23 = df22.loc[df22['station_id'].isin(df21['station_id'])]
 	df24 = df23.merge(df21, on='station_id', how='left')
 	df25 = df24[df24['count_fuel_true_x'] >= df24['count_fuel_true_y']].reset_index().drop(['index'], axis=1)
 
 	# Отключаем цены с yandex_fuel и включаем benzuber:
-	list_yaf_benz = []
+	list_yaf, list_bz = [], []
 	for k, i in enumerate(df25['station_id'].unique()):
 		if check_price(df25.loc[k, ['source_x']].values[0], i) == 'OK':
-			list_yaf_benz.append(('update gs__station_product set show_in_report = \'t\' where station_id = ' + str(i) +
-								  ' and source_type = \'' + df25[df25['station_id'] == i]['source_x'] +
-								  '\' and DATE(updated_at) = CURRENT_DATE;')[k])
-			list_yaf_benz.append(('update gs__station_product set show_in_report = \'f\' where station_id = ' + str(i) +
-								  ' and source_type = \'' + df25[df25['station_id'] == i]['source_y'].unique() + '\';')[
-									 0])
-	# Запись изменений по источникам цен в БД
-	for i in range(len(list_yaf_benz)):
-		for j in list_yaf_benz[i: i + 1]:
-			update_query(connection1(), j)
+			list_yaf.append(f"""(station_id = {i} and source_type = '{df25.loc[k]['source_y']}') OR""")
+			list_bz.append(f"""(station_id = {i} and source_type = '{df25.loc[k]['source_x']}' and \
+	DATE(updated_at) = CURRENT_DATE) OR""")
 
-	# Отключение цен по общей границе для всех видов топлива (price <5 & >100)
-	df27 = df01[((df01['price'] < 5) | (df01['price'] > 100)) & (df01['show_in_report'] == 't')] \
+	conv_string9 = ' '.join(list_yaf)[:-3] + ';'
+	price_off9 = f"""UPDATE gs__station_product SET show_in_report = 'f' where """ + conv_string9
+
+	if list_yaf:
+		update_query(connection1(), price_off9)
+
+	conv_string10 = ' '.join(list_bz)[:-3] + ';'
+	price_on10 = f"""UPDATE gs__station_product SET show_in_report = 't' where """ + conv_string10
+
+	if list_bz:
+		update_query(connection1(), price_on10)
+
+	# Отключение цен по общей границе для всех видов топлива (price <8 & >100)
+	df27 = df01[((df01['price'] < 8) | (df01['price'] > 100)) & (df01['show_in_report'] == 't')] \
 		[['station_id', 'product_id', 'source']].reset_index().drop(['index'], axis=1)
-	list_priceoff = []
-	for k, i in enumerate(df27['station_id']):
-		list_priceoff.append('update gs__station_product set show_in_report = \'f\' where station_id = ' + str(i) +
-							 ' and source_type = \'' + df27.loc[k, 'source'] + '\' and product_id = ' +
-							 str(df27.loc[k, 'product_id']) + ' ;')
 
-	# Запись изменений по источникам цен в БД
-	for i in range(len(list_priceoff)):
-		for j in list_priceoff[i: i + 1]:
-			update_query(connection1(), j)
+	list_wrong_price = [f"""(station_id = {df27.loc[i]['station_id']} and source_type = '{df27.loc[i]['source']}' and \
+	product_id = {df27.loc[i]['product_id']}) OR""" for i in df27.index]
+
+	conv_string11 = ' '.join(list_wrong_price)[:-3] + ';'
+	price_off11 = f"""UPDATE gs__station_product SET show_in_report = 'f' where """ + conv_string11
+	if list_wrong_price:
+		update_query(connection1(), price_off11)
 
 
 if __name__ == "__main__":
