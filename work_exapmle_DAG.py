@@ -3,7 +3,8 @@ from datetime import timedelta, datetime
 import pandas as pd
 # from airflow.decorators import task
 from airflow import DAG
-from airflow.operators.postgres_operator import PostgresOperator
+#from airflow.operators.postgres_operator import PostgresOperator
+from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
 from airflow.operators.python import PythonOperator
 from airflow.operators.python import BranchPythonOperator
 from airflow.operators.dummy import DummyOperator
@@ -49,13 +50,12 @@ def process_data_price_off_1(**kwargs):
 
     # Отключение источников цен, по которым даты превысили срок действия по отношению к текущей дате
     # Формирование ДФ с датами обновления цены более 7 дней назад
-    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'product', 3: 'prod_other', 4: 'price', 5: 'source',
-                         6: 'show_in_report', 7: 'date_upd'}, inplace=True)
+    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'price', 3: 'source',
+                         4: 'show_in_report', 5: 'date_upd'}, inplace=True)
     df_1 = df01.loc[(df01['source'].isin(true_source)) & (df01['show_in_report'] == 't') &
                     (df01['date_upd'] < datetime.now().date() - timedelta(days=6))]
-    df_1 = df_1.groupby(['station_id', 'source']).count().reset_index().drop(['product_id', 'product', 'prod_other',
-                                                                              'price', 'show_in_report',
-                                                                              'date_upd'], axis=1)
+    df_1 = df_1.groupby(['station_id', 'source']).count().reset_index().drop(['product_id', 'price', 
+                                                                             'show_in_report', 'date_upd'], axis=1)
     st_for_upd_01 = [f"""(station_id = {df_1.station_id.iloc[i]} AND source_type = '{df_1.source.iloc[i]}' \
     AND date(updated_at) < CURRENT_DATE - 6) OR""" for i in range(df_1.shape[0])]
 
@@ -84,13 +84,12 @@ def process_data_price_off_2(**kwargs):
     df01 = pd.DataFrame(prices)
 
     # Формирование ДФ с датами обновления цены более 16 дней назад
-    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'product', 3: 'prod_other', 4: 'price', 5: 'source',
-                         6: 'show_in_report', 7: 'date_upd'}, inplace=True)
+    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'price', 3: 'source',
+                         4: 'show_in_report', 5: 'date_upd'}, inplace=True)
     df_2 = df01.loc[(df01['source'].isin(not_true_source)) & (df01['show_in_report'] == 't') &
                     (df01['date_upd'] < datetime.now().date() - timedelta(days=16))]
-    df_2 = df_2.groupby(['station_id', 'source']).count().reset_index().drop(['product_id', 'product', 'prod_other',
-                                                                              'price', 'show_in_report',
-                                                                              'date_upd'], axis=1)
+    df_2 = df_2.groupby(['station_id', 'source']).count().reset_index().drop(['product_id', 'price', 
+                                                                            'show_in_report', 'date_upd'], axis=1)
     st_for_upd_02 = [
         f"""(station_id = {df_2.station_id.iloc[i]} AND source_type = '{df_2.source.iloc[i]}' \
         AND date(updated_at) < CURRENT_DATE - 16) OR""" for i in range(df_2.shape[0])]
@@ -145,8 +144,8 @@ def transform_data_price_on(**kwargs):
     ti = kwargs['ti']
     prices = ti.xcom_pull(task_ids='sql_get_data_2')
     df01 = pd.DataFrame(prices)
-    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'product', 3: 'prod_other', 4: 'price', 5: 'source',
-                         6: 'show_in_report', 7: 'date_upd'}, inplace=True)
+    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'price', 3: 'source',
+                         4: 'show_in_report', 5: 'date_upd'}, inplace=True)
     # ------ Формируются два ДФ и выделяется список АЗС, по которым не включены цены -------
     df02 = pd.DataFrame({'station_id': df01[df01['show_in_report'] == 't']['station_id'].unique()})
     df03 = pd.DataFrame({'station_id': df01[(df01['show_in_report'] == 'f') & (df01['price'] > 0) & \
@@ -257,8 +256,8 @@ def price_on_trans_update_2(**kwargs):
         # df09.columns = ['station_id', 'source', 'date_upd', 'count_fuel', 'check', 'count_err', 'amount', 'rate']
         prices = ti.xcom_pull(task_ids='sql_get_data_2')
         df01 = pd.DataFrame(prices)
-        df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'product', 3: 'prod_other', 4: 'price', 5: 'source',
-                             6: 'show_in_report', 7: 'date_upd'}, inplace=True)
+        df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'price', 3: 'source',
+                             4: 'show_in_report', 5: 'date_upd'}, inplace=True)
         # Включаем цены по каждому продукту в тех АЗС, где есть ошибки у одной или более позиций
         df__12 = df09[(df09['count_err'] != '') & (df09['source'].isin(true_source))].reset_index(level=0, drop=True)
         st_for_upd3 = []
@@ -310,8 +309,8 @@ def price_on_trans_update_3(**kwargs):
         # df09.columns = ['station_id', 'source', 'date_upd', 'count_fuel', 'check', 'count_err', 'amount', 'rate']
         prices = ti.xcom_pull(task_ids='sql_get_data_2')
         df01 = pd.DataFrame(prices)
-        df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'product', 3: 'prod_other', 4: 'price', 5: 'source',
-                             6: 'show_in_report', 7: 'date_upd'}, inplace=True)
+        df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'price', 3: 'source',
+                             4: 'show_in_report', 5: 'date_upd'}, inplace=True)
         # Включаем цены по каждому продукту в тех АЗС, где есть ошибки у одной или более позиций источник ППР
         df__13 = df09[(df09['check'] == 'OK') & (df09['count_err'] != '') &
                       (df09['source'].isin(not_true_source))].reset_index(level=0, drop=True)
@@ -382,8 +381,8 @@ def price_on_trans_update_bd(**kwargs):
     ti = kwargs['ti']
     prices = ti.xcom_pull(task_ids='sql_get_data_3')
     df01 = pd.DataFrame(prices)
-    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'product', 3: 'prod_other', 4: 'price', 5: 'source',
-                         6: 'show_in_report', 7: 'date_upd'}, inplace=True)
+    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'price', 3: 'source',
+                         4: 'show_in_report', 5: 'date_upd'}, inplace=True)
     # Включение цен, по которым уже есть источник цен, но появились новые виды топлива на текущую дату.
     # Формируются два ДФ и выделяется список АЗС, где некоторые виды топлива не включены.
     df10 = pd.DataFrame(
@@ -480,8 +479,8 @@ def change_price_source(**kwargs):
     ti = kwargs['ti']
     prices = ti.xcom_pull(task_ids='sql_get_data_2')
     df01 = pd.DataFrame(prices)
-    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'product', 3: 'prod_other', 4: 'price', 5: 'source',
-                         6: 'show_in_report', 7: 'date_upd'}, inplace=True)
+    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'price', 3: 'source',
+                         4: 'show_in_report', 5: 'date_upd'}, inplace=True)
 
     # Замена недостоверных источников на достоверные.
     # Формируется два ДФ для замены одних источников на другие.
@@ -578,8 +577,8 @@ def change_yf_bz(**kwargs):
     ti = kwargs['ti']
     prices = ti.xcom_pull(task_ids='sql_get_data_2')
     df01 = pd.DataFrame(prices)
-    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'product', 3: 'prod_other', 4: 'price', 5: 'source',
-                         6: 'show_in_report', 7: 'date_upd'}, inplace=True)
+    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'price', 3: 'source',
+                         4: 'show_in_report', 5: 'date_upd'}, inplace=True)
 
     # ------ Формируются два ДФ и выделяется список АЗС, по которым не включены цены -------
     df02 = pd.DataFrame({'station_id': df01[df01['show_in_report'] == 't']['station_id'].unique()})
@@ -634,8 +633,8 @@ def correct_price(**kwargs):
     ti = kwargs['ti']
     prices = ti.xcom_pull(task_ids='sql_get_data_2')
     df01 = pd.DataFrame(prices)
-    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'product', 3: 'prod_other', 4: 'price', 5: 'source',
-                         6: 'show_in_report', 7: 'date_upd'}, inplace=True)
+    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'price', 3: 'source',
+                         4: 'show_in_report', 5: 'date_upd'}, inplace=True)
 
     # Отключение цен по общей границе для всех видов топлива (price <8 & >100)
     df27 = df01[((df01['price'] < 8) | (df01['price'] > 100)) & (df01['show_in_report'] == 't')] \
@@ -656,8 +655,8 @@ def correct_diesel(**kwargs):
     ti = kwargs['ti']
     prices = ti.xcom_pull(task_ids='sql_get_data_4')
     df01 = pd.DataFrame(prices)
-    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'product', 3: 'prod_other', 4: 'price', 5: 'source',
-                         6: 'show_in_report', 7: 'date_upd'}, inplace=True)
+    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'price', 3: 'source',
+                         4: 'show_in_report', 5: 'date_upd'}, inplace=True)
 
     # После перевода дизеля на сезонность появилась необходимость оперативно отключать из отчёта старые данные по дизелю
     # В данном коде фильтруем все АСЗ у которых более 2 ДТ, которые идут в отчёт. Далее формируем список на отключение
@@ -691,7 +690,7 @@ def correct_diesel(**kwargs):
 
 with DAG('work_exa_2',
          default_args=default_args,
-         schedule_interval='0 3,10,17,23 * * *',
+         schedule_interval='0 2,9,16,22 * * *',
          catchup=False) as dag:
     # Операторы выключения и обновления бд старых цен
     off_price_6days = PythonOperator(
@@ -708,10 +707,10 @@ with DAG('work_exa_2',
     )
     skip_step1 = DummyOperator(task_id='skip_6days_data')
     join_step1 = DummyOperator(task_id='join_step_6days_data', trigger_rule='none_failed')
-    update_off_price_6days = PostgresOperator(
+    update_off_price_6days = SQLExecuteQueryOperator(
         task_id='update_off_price_6days',
         sql="{{ti.xcom_pull(task_ids='off_price_6days', key='price_off_6_day')}}",
-        postgres_conn_id='datomt',
+        conn_id='datomt',
     )
     check_17days_data = BranchPythonOperator(
         task_id='check_17days_data',
@@ -719,10 +718,10 @@ with DAG('work_exa_2',
     )
     skip_step2 = DummyOperator(task_id='skip_17days_data')
     join_step2 = DummyOperator(task_id='join_step_17days_data', trigger_rule='none_failed')
-    update_off_price_17days = PostgresOperator(
+    update_off_price_17days = SQLExecuteQueryOperator(
         task_id='update_off_price_17days',
         sql="{{ti.xcom_pull(task_ids='off_price_17days', key='price_off_17_day')}}",
-        postgres_conn_id='datomt',
+        conn_id='datomt',
     )
     # Операторы включения и обновления новых цен, АЗС которых нет в отчётах
     price_new_on = PythonOperator(
@@ -741,82 +740,82 @@ with DAG('work_exa_2',
         task_id='price_new_on_upd_3',
         python_callable=price_on_trans_update_3,
     )
-    update_on_new_price_1 = PostgresOperator(
+    update_on_new_price_1 = SQLExecuteQueryOperator(
         task_id='update_on_new_price_1',
         sql=["{{ti.xcom_pull(task_ids='price_new_on_upd_1', key='price_on_upd_1')}}",
              "{{ti.xcom_pull(task_ids='price_new_on_upd_1', key='price_on_upd_2')}}"],
-        postgres_conn_id='datomt'
+        conn_id='datomt'
     )
     # update_on_new_price_2 = PostgresOperator(
     #     task_id='update_on_new_price_2',
     #     sql="{{ ti.xcom_pull(task_ids='price_new_on_upd_1', key='price_on_upd_2')}}",
     #     postgres_conn_id='datomt'
     # )
-    update_on_new_price_3 = PostgresOperator(
+    update_on_new_price_3 = SQLExecuteQueryOperator(
         task_id='update_on_new_price_3',
         sql="{{ti.xcom_pull(task_ids='price_new_on_upd_2', key='price_on_upd_3')}}",
-        postgres_conn_id='datomt'
+        conn_id='datomt'
     )
-    update_on_new_price_4 = PostgresOperator(
+    update_on_new_price_4 = SQLExecuteQueryOperator(
         task_id='update_on_new_price_4',
         sql="{{ti.xcom_pull(task_ids='price_new_on_upd_3', key='price_on_upd_4')}}",
-        postgres_conn_id='datomt'
+        conn_id='datomt'
     )
     # Операторы включения и обновления новых цен по тем АЗС, которые уже идут в отчёт
     price_new_on_in_report = PythonOperator(
         task_id='price_new_on_in_report',
         python_callable=price_on_trans_update_bd,
     )
-    update_new_price_in_report = PostgresOperator(
+    update_new_price_in_report = SQLExecuteQueryOperator(
         task_id='update_new_price_in_report',
         sql=["{{ti.xcom_pull(task_ids='price_new_on_in_report', key='price_on_upd_5')}}",
              "{{ti.xcom_pull(task_ids='price_new_on_in_report', key='price_off_upd_6')}}"],
-        postgres_conn_id='datomt'
+        conn_id='datomt'
     )
     # Операторы включения и обновления достоверных источников данных
     change_source = PythonOperator(
         task_id='change_source',
         python_callable=change_price_source,
     )
-    update_change_source = PostgresOperator(
+    update_change_source = SQLExecuteQueryOperator(
         task_id='update_change_source',
         sql=["{{ti.xcom_pull(task_ids='change_source', key='price_off_upd_7')}}",
              "{{ti.xcom_pull(task_ids='change_source', key='price_on_upd_8')}}"],
-        postgres_conn_id='datomt'
+        conn_id='datomt'
     )
     # Операторы включения и обновления источника цен яндекс заправки на бензубер
     change_yf_on_bz = PythonOperator(
         task_id='change_yf_on_bz',
         python_callable=change_yf_bz,
     )
-    update_change_yf_on_bz = PostgresOperator(
+    update_change_yf_on_bz = SQLExecuteQueryOperator(
         task_id='update_change_yf_on_bz',
         sql=["{{ti.xcom_pull(task_ids='change_yf_on_bz', key='price_off_upd_9')}}",
              "{{ti.xcom_pull(task_ids='change_yf_on_bz', key='price_on_upd_10')}}"],
-        postgres_conn_id='datomt'
+        conn_id='datomt'
     )
     # Оператор отключения источника с некорректной ценой
     change_wrong_price = PythonOperator(
         task_id='change_wrong_price',
         python_callable=correct_price,
     )
-    update_change_wrong_price = PostgresOperator(
+    update_change_wrong_price = SQLExecuteQueryOperator(
         task_id='update_change_wrong_price',
         sql="{{ti.xcom_pull(task_ids='change_wrong_price', key='price_off_upd_11')}}",
-        postgres_conn_id='datomt'
+        conn_id='datomt'
     )
     # Операторы отключения старых цен дизелю при смене сезона
     change_old_diesel = PythonOperator(
         task_id='change_old_diesel',
         python_callable=correct_diesel,
     )
-    update_old_price_diesel = PostgresOperator(
+    update_old_price_diesel = SQLExecuteQueryOperator(
         task_id='update_old_price_diesel',
         sql="{{ti.xcom_pull(task_ids='change_old_diesel', key='price_off_upd_12')}}",
-        postgres_conn_id='datomt'
+        conn_id='datomt'
     )
     # Операторы получения данных из БД - датомт
-    sql_get_data = PostgresOperator(
+    sql_get_data = SQLExecuteQueryOperator(
         task_id='sql_get_data',
         sql='''
             WITH client_azs AS (
@@ -833,23 +832,24 @@ with DAG('work_exa_2',
                 union
                 SELECT DISTINCT cl_id FROM client_azs)
 
-            SELECT GSP.station_id, GSP.product_id, DP.name AS product_name, DP.name AS продукт_общ, GSP.price, GSP.source_type, 
+            SELECT GSP.station_id, GSP.product_id, GSP.price, GSP.source_type, 
                 CASE WHEN GSP.show_in_report = 't' 
                     THEN 't' 
                         ELSE 'f' END AS show_in_report, 
             DATE(GSP.updated_at) as date_upd
             FROM gs__station_product AS GSP
+            LEFT JOIN  gs__station as gs on gs.id = gsp.station_id
             LEFT JOIN directory__product AS DP ON DP.id = GSP.product_id
             WHERE GSP.station_id NOT IN(
                 SELECT comp_id FROM competitors_azs)
             AND ((GSP.show_in_report = 't' AND DATE(GSP.updated_at) > CURRENT_DATE-500) OR (GSP.show_in_report = 'f' AND 
             DATE(GSP.updated_at) > CURRENT_DATE-21))
-
-            ORDER BY 1, 5, 7, 2
+            and gs.region_id < 86
+            ORDER BY 1, 3, 5, 2
             ''',
-        postgres_conn_id='datomt'
+        conn_id='datomt'
     )
-    sql_get_data_2 = PostgresOperator(
+    sql_get_data_2 = SQLExecuteQueryOperator(
         task_id='sql_get_data_2',
         sql='''
             WITH client_azs AS (
@@ -866,23 +866,24 @@ with DAG('work_exa_2',
                 union
                 SELECT DISTINCT cl_id FROM client_azs)
 
-            SELECT GSP.station_id, GSP.product_id, DP.name AS product_name, DP.name AS продукт_общ, GSP.price, GSP.source_type, 
+            SELECT GSP.station_id, GSP.product_id, GSP.price, GSP.source_type, 
                 CASE WHEN GSP.show_in_report = 't' 
                     THEN 't' 
                         ELSE 'f' END AS show_in_report, 
             DATE(GSP.updated_at) as date_upd
             FROM gs__station_product AS GSP
+            LEFT JOIN  gs__station as gs on gs.id = gsp.station_id
             LEFT JOIN directory__product AS DP ON DP.id = GSP.product_id
             WHERE GSP.station_id NOT IN(
                 SELECT comp_id FROM competitors_azs)
             AND ((GSP.show_in_report = 't' AND DATE(GSP.updated_at) > CURRENT_DATE-60) OR (GSP.show_in_report = 'f' AND 
             DATE(GSP.updated_at) > CURRENT_DATE-21))
-
-            ORDER BY 1, 5, 7, 2
+            and gs.region_id < 86
+            ORDER BY 1, 3, 5, 2
             ''',
-        postgres_conn_id='datomt',
+        conn_id='datomt',
     )
-    sql_get_data_3 = PostgresOperator(
+    sql_get_data_3 = SQLExecuteQueryOperator(
         task_id='sql_get_data_3',
         sql='''
             WITH client_azs AS (
@@ -899,23 +900,24 @@ with DAG('work_exa_2',
                 union
                 SELECT DISTINCT cl_id FROM client_azs)
 
-            SELECT GSP.station_id, GSP.product_id, DP.name AS product_name, DP.name AS продукт_общ, GSP.price, GSP.source_type, 
+            SELECT GSP.station_id, GSP.product_id, GSP.price, GSP.source_type, 
                 CASE WHEN GSP.show_in_report = 't' 
                     THEN 't' 
                         ELSE 'f' END AS show_in_report, 
             DATE(GSP.updated_at) as date_upd
             FROM gs__station_product AS GSP
+            LEFT JOIN  gs__station as gs on gs.id = gsp.station_id
             LEFT JOIN directory__product AS DP ON DP.id = GSP.product_id
             WHERE GSP.station_id NOT IN(
                 SELECT comp_id FROM competitors_azs)
             AND ((GSP.show_in_report = 't' AND DATE(GSP.updated_at) > CURRENT_DATE-60) OR (GSP.show_in_report = 'f' AND 
             DATE(GSP.updated_at) > CURRENT_DATE-21))
-
-            ORDER BY 1, 5, 7, 2
+            and gs.region_id < 86
+            ORDER BY 1, 3, 5, 2
             ''',
-        postgres_conn_id='datomt'
+        conn_id='datomt'
     )
-    sql_get_data_4 = PostgresOperator(
+    sql_get_data_4 = SQLExecuteQueryOperator(
         task_id='sql_get_data_4',
         sql='''
             WITH client_azs AS (
@@ -932,21 +934,22 @@ with DAG('work_exa_2',
                 union
                 SELECT DISTINCT cl_id FROM client_azs)
 
-            SELECT GSP.station_id, GSP.product_id, DP.name AS product_name, DP.name AS продукт_общ, GSP.price, GSP.source_type, 
+            SELECT GSP.station_id, GSP.product_id, GSP.price, GSP.source_type, 
                 CASE WHEN GSP.show_in_report = 't' 
                     THEN 't' 
                         ELSE 'f' END AS show_in_report, 
             DATE(GSP.updated_at) as date_upd
             FROM gs__station_product AS GSP
+            LEFT JOIN  gs__station as gs on gs.id = gsp.station_id
             LEFT JOIN directory__product AS DP ON DP.id = GSP.product_id
             WHERE GSP.station_id NOT IN(
                 SELECT comp_id FROM competitors_azs)
             AND ((GSP.show_in_report = 't' AND DATE(GSP.updated_at) > CURRENT_DATE-60) OR (GSP.show_in_report = 'f' AND 
             DATE(GSP.updated_at) > CURRENT_DATE-21))
-
-            ORDER BY 1, 5, 7, 2
+            and gs.region_id < 86
+            ORDER BY 1, 3, 5, 2
             ''',
-        postgres_conn_id='datomt'
+        conn_id='datomt'
     )
 
     sql_get_data >> [off_price_6days, off_price_17days]
