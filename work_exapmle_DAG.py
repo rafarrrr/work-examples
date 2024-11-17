@@ -43,6 +43,44 @@ true_source = ['api_azsgo', 'api_azsopti', 'api_yandex_fuel', 'api_benzuber', 'a
 not_true_source = ['api_rncard', 'manual_other', 'manual_phone', 'api_fuelup']
 
 
+def generate_station_query() -> str:
+    """
+    Генерирует SQL-запрос для получения данных по АЗС.
+
+    :return: SQL-запрос в виде строки.
+    """
+    return 
+        f'''
+        WITH client_azs AS (
+            SELECT CCS.station_id AS cl_id, CCS.id
+            FROM customer__customer_station AS CCS
+            LEFT JOIN customer__customer AS CC ON CC.id = CCS.customer_id
+            WHERE cc.status IN('client', 'demo', 'trial')),
+
+            competitors_azs AS (
+            SELECT DISTINCT CCSC.station_id AS comp_id
+            FROM client_azs AS CA
+            LEFT JOIN customer__customer_station_competitor AS CCSC ON CCSC.customer_station_id = CA.id
+            where CCSC.station_id is not null
+            union
+            SELECT DISTINCT cl_id FROM client_azs)
+
+        SELECT GSP.station_id, GSP.product_id, GSP.price, GSP.source_type, 
+            CASE WHEN GSP.show_in_report = 't' 
+                THEN 't' 
+                    ELSE 'f' END AS show_in_report, 
+        DATE(GSP.updated_at) as date_upd
+        FROM gs__station_product AS GSP
+        LEFT JOIN gs__station as gs on gs.id = gsp.station_id
+        WHERE GSP.station_id NOT IN(
+            SELECT comp_id FROM competitors_azs)
+        AND ((GSP.show_in_report = 't' AND DATE(GSP.updated_at) > CURRENT_DATE-60) OR (GSP.show_in_report = 'f' AND 
+        DATE(GSP.updated_at) > CURRENT_DATE-21))
+        and gs.region_id < 86
+        ORDER BY 1, 3, 5, 2
+        '''
+
+
 def process_data_price_off_1(**kwargs):
     ti = kwargs['ti']
     prices = ti.xcom_pull(task_ids='sql_get_data')
@@ -817,138 +855,22 @@ with DAG('work_exa_2',
     # Операторы получения данных из БД - датомт
     sql_get_data = SQLExecuteQueryOperator(
         task_id='sql_get_data',
-        sql='''
-            WITH client_azs AS (
-                SELECT CCS.station_id AS cl_id, CCS.id
-                FROM customer__customer_station AS CCS
-                LEFT JOIN customer__customer AS CC ON CC.id = CCS.customer_id
-                WHERE cc.status IN('client', 'demo', 'trial')),
-
-                competitors_azs AS (
-                SELECT DISTINCT CCSC.station_id AS comp_id
-                FROM client_azs AS CA
-                LEFT JOIN customer__customer_station_competitor AS CCSC ON CCSC.customer_station_id = CA.id
-                where CCSC.station_id is not null
-                union
-                SELECT DISTINCT cl_id FROM client_azs)
-
-            SELECT GSP.station_id, GSP.product_id, GSP.price, GSP.source_type, 
-                CASE WHEN GSP.show_in_report = 't' 
-                    THEN 't' 
-                        ELSE 'f' END AS show_in_report, 
-            DATE(GSP.updated_at) as date_upd
-            FROM gs__station_product AS GSP
-            LEFT JOIN  gs__station as gs on gs.id = gsp.station_id
-            LEFT JOIN directory__product AS DP ON DP.id = GSP.product_id
-            WHERE GSP.station_id NOT IN(
-                SELECT comp_id FROM competitors_azs)
-            AND ((GSP.show_in_report = 't' AND DATE(GSP.updated_at) > CURRENT_DATE-500) OR (GSP.show_in_report = 'f' AND 
-            DATE(GSP.updated_at) > CURRENT_DATE-21))
-            and gs.region_id < 86
-            ORDER BY 1, 3, 5, 2
-            ''',
+        sql=generate_station_query(),
         conn_id='datomt'
     )
     sql_get_data_2 = SQLExecuteQueryOperator(
         task_id='sql_get_data_2',
-        sql='''
-            WITH client_azs AS (
-                SELECT CCS.station_id AS cl_id, CCS.id
-                FROM customer__customer_station AS CCS
-                LEFT JOIN customer__customer AS CC ON CC.id = CCS.customer_id
-                WHERE cc.status IN('client', 'demo', 'trial')),
-
-                competitors_azs AS (
-                SELECT DISTINCT CCSC.station_id AS comp_id
-                FROM client_azs AS CA
-                LEFT JOIN customer__customer_station_competitor AS CCSC ON CCSC.customer_station_id = CA.id
-                where CCSC.station_id is not null
-                union
-                SELECT DISTINCT cl_id FROM client_azs)
-
-            SELECT GSP.station_id, GSP.product_id, GSP.price, GSP.source_type, 
-                CASE WHEN GSP.show_in_report = 't' 
-                    THEN 't' 
-                        ELSE 'f' END AS show_in_report, 
-            DATE(GSP.updated_at) as date_upd
-            FROM gs__station_product AS GSP
-            LEFT JOIN  gs__station as gs on gs.id = gsp.station_id
-            LEFT JOIN directory__product AS DP ON DP.id = GSP.product_id
-            WHERE GSP.station_id NOT IN(
-                SELECT comp_id FROM competitors_azs)
-            AND ((GSP.show_in_report = 't' AND DATE(GSP.updated_at) > CURRENT_DATE-60) OR (GSP.show_in_report = 'f' AND 
-            DATE(GSP.updated_at) > CURRENT_DATE-21))
-            and gs.region_id < 86
-            ORDER BY 1, 3, 5, 2
-            ''',
+        sql=generate_station_query(),
         conn_id='datomt',
     )
     sql_get_data_3 = SQLExecuteQueryOperator(
         task_id='sql_get_data_3',
-        sql='''
-            WITH client_azs AS (
-                SELECT CCS.station_id AS cl_id, CCS.id
-                FROM customer__customer_station AS CCS
-                LEFT JOIN customer__customer AS CC ON CC.id = CCS.customer_id
-                WHERE cc.status IN('client', 'demo', 'trial')),
-
-                competitors_azs AS (
-                SELECT DISTINCT CCSC.station_id AS comp_id
-                FROM client_azs AS CA
-                LEFT JOIN customer__customer_station_competitor AS CCSC ON CCSC.customer_station_id = CA.id
-                where CCSC.station_id is not null
-                union
-                SELECT DISTINCT cl_id FROM client_azs)
-
-            SELECT GSP.station_id, GSP.product_id, GSP.price, GSP.source_type, 
-                CASE WHEN GSP.show_in_report = 't' 
-                    THEN 't' 
-                        ELSE 'f' END AS show_in_report, 
-            DATE(GSP.updated_at) as date_upd
-            FROM gs__station_product AS GSP
-            LEFT JOIN  gs__station as gs on gs.id = gsp.station_id
-            LEFT JOIN directory__product AS DP ON DP.id = GSP.product_id
-            WHERE GSP.station_id NOT IN(
-                SELECT comp_id FROM competitors_azs)
-            AND ((GSP.show_in_report = 't' AND DATE(GSP.updated_at) > CURRENT_DATE-60) OR (GSP.show_in_report = 'f' AND 
-            DATE(GSP.updated_at) > CURRENT_DATE-21))
-            and gs.region_id < 86
-            ORDER BY 1, 3, 5, 2
-            ''',
+        sql=generate_station_query(),
         conn_id='datomt'
     )
     sql_get_data_4 = SQLExecuteQueryOperator(
         task_id='sql_get_data_4',
-        sql='''
-            WITH client_azs AS (
-                SELECT CCS.station_id AS cl_id, CCS.id
-                FROM customer__customer_station AS CCS
-                LEFT JOIN customer__customer AS CC ON CC.id = CCS.customer_id
-                WHERE cc.status IN('client', 'demo', 'trial')),
-
-                competitors_azs AS (
-                SELECT DISTINCT CCSC.station_id AS comp_id
-                FROM client_azs AS CA
-                LEFT JOIN customer__customer_station_competitor AS CCSC ON CCSC.customer_station_id = CA.id
-                where CCSC.station_id is not null
-                union
-                SELECT DISTINCT cl_id FROM client_azs)
-
-            SELECT GSP.station_id, GSP.product_id, GSP.price, GSP.source_type, 
-                CASE WHEN GSP.show_in_report = 't' 
-                    THEN 't' 
-                        ELSE 'f' END AS show_in_report, 
-            DATE(GSP.updated_at) as date_upd
-            FROM gs__station_product AS GSP
-            LEFT JOIN  gs__station as gs on gs.id = gsp.station_id
-            LEFT JOIN directory__product AS DP ON DP.id = GSP.product_id
-            WHERE GSP.station_id NOT IN(
-                SELECT comp_id FROM competitors_azs)
-            AND ((GSP.show_in_report = 't' AND DATE(GSP.updated_at) > CURRENT_DATE-60) OR (GSP.show_in_report = 'f' AND 
-            DATE(GSP.updated_at) > CURRENT_DATE-21))
-            and gs.region_id < 86
-            ORDER BY 1, 3, 5, 2
-            ''',
+        sql=generate_station_query(),
         conn_id='datomt'
     )
 
