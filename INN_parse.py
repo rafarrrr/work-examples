@@ -24,7 +24,7 @@ with open('C:\\!Равшан_работа\\OMT Consult\\Карты\\inn.txt', 'r
     for line in w:
         list_inn.append(line.strip('\n'))
 
-token = "95f4180a67114d0806e5b9afe92998e051eb8831"
+token = "**********"
 dadata = Dadata(token)
 dict_inn = {}
 
