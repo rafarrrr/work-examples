@@ -10,18 +10,18 @@ from airflow.operators.python import BranchPythonOperator
 from airflow.operators.dummy import DummyOperator
 
 default_args = {
-    'start_date': datetime(2023, 6, 1),
+    'start_date': datetime(2024, 11, 10),
     "retries": 2,
     'retry_delay': timedelta(seconds=30),
 }
 
-check_dic = {2: {'max': 97, 'min': 35}, 3: {'max': 97, 'min': 35}, 4: {'max': 97, 'min': 44},
-             41: {'max': 97, 'min': 45}, 42: {'max': 85, 'min': 33}, 173: {'max': 97, 'min': 45},
-             174: {'max': 97, 'min': 45}, 175: {'max': 97, 'min': 45}, 176: {'max': 99, 'min': 40},
-             139: {'max': 95, 'min': 40}, 177: {'max': 99, 'min': 46}, 184: {'max': 99, 'min': 45},
-             178: {'max': 40, 'min': 10}, 179: {'max': 45, 'min': 11}, 181: {'max': 102, 'min': 40},
-             182: {'max': 99, 'min': 40}, 183: {'max': 99, 'min': 45}, 189: {'max': 75, 'min': 40},
-             204: {'max': 70, 'min': 40}, 133: {'max': 70, 'min': 40}, 156: {'max': 60, 'min': 30},
+check_dic = {2: {'max': 97, 'min': 46.55}, 3: {'max': 97, 'min': 40.05}, 4: {'max': 97, 'min': 50.5},
+             41: {'max': 97, 'min': 50.5}, 42: {'max': 85, 'min': 33}, 173: {'max': 97, 'min': 50.5},
+             174: {'max': 97, 'min': 46.55}, 175: {'max': 97, 'min': 40.5}, 176: {'max': 110, 'min': 46},
+             139: {'max': 95, 'min': 40.1}, 177: {'max': 110, 'min': 46}, 184: {'max': 110, 'min': 46},
+             178: {'max': 40, 'min': 10}, 179: {'max': 45, 'min': 11}, 181: {'max': 110, 'min': 46.1},
+             182: {'max': 110, 'min': 46.1}, 183: {'max': 110, 'min': 46.1}, 189: {'max': 75, 'min': 45.1},
+             204: {'max': 70, 'min': 45.1}, 133: {'max': 70, 'min': 45.1}, 156: {'max': 60, 'min': 45.1},
              308: {'max': 50, 'min': 25}, 332: {'max': 80, 'min': 20},
              }
 dict_fuel_comparison = {176: [177, 182, 183, 181, 204],
@@ -39,8 +39,8 @@ dict_fuel_comparison = {176: [177, 182, 183, 181, 204],
                         41: [4, 173]
                         }
 true_source = ['api_azsgo', 'api_azsopti', 'api_yandex_fuel', 'api_benzuber', 'api_yandex_other', 'manual_app',
-               'manual_manual', 'manual_ppr', 'manual_gazprom', 'api_licard', 'api_gpn', 'api_lukoil']
-not_true_source = ['api_rncard', 'manual_other', 'manual_phone', 'api_fuelup']
+               'manual_manual', 'manual_ppr', 'manual_gazprom', 'api_licard', 'api_gpn', 'api_lukoil', 'api_sng']
+not_true_source = ['api_ppr', 'api_rncard', 'manual_other', 'manual_phone', 'api_fuelup']
 
 
 def generate_station_query() -> str:
@@ -49,14 +49,12 @@ def generate_station_query() -> str:
 
     :return: SQL-запрос в виде строки.
     """
-    return 
-        f'''
+    return f'''
         WITH client_azs AS (
             SELECT CCS.station_id AS cl_id, CCS.id
             FROM customer__customer_station AS CCS
             LEFT JOIN customer__customer AS CC ON CC.id = CCS.customer_id
             WHERE cc.status IN('client', 'demo', 'trial')),
-
             competitors_azs AS (
             SELECT DISTINCT CCSC.station_id AS comp_id
             FROM client_azs AS CA
@@ -64,7 +62,6 @@ def generate_station_query() -> str:
             where CCSC.station_id is not null
             union
             SELECT DISTINCT cl_id FROM client_azs)
-
         SELECT GSP.station_id, GSP.product_id, GSP.price, GSP.source_type, 
             CASE WHEN GSP.show_in_report = 't' 
                 THEN 't' 
@@ -72,10 +69,11 @@ def generate_station_query() -> str:
         DATE(GSP.updated_at) as date_upd
         FROM gs__station_product AS GSP
         LEFT JOIN gs__station as gs on gs.id = gsp.station_id
-        WHERE GSP.station_id NOT IN(
-            SELECT comp_id FROM competitors_azs)
-        AND ((GSP.show_in_report = 't' AND DATE(GSP.updated_at) > CURRENT_DATE-60) OR (GSP.show_in_report = 'f' AND 
-        DATE(GSP.updated_at) > CURRENT_DATE-21))
+        WHERE not exists (SELECT 1 
+                          FROM competitors_azs AS CA 
+                          WHERE CA.comp_id = GSP.station_id)
+        AND ((GSP.show_in_report = 't' AND GSP.updated_at > (CURRENT_DATE-60)::date) OR (GSP.show_in_report = 'f' AND 
+        GSP.updated_at > (CURRENT_DATE-21)::date))
         and gs.region_id < 86
         ORDER BY 1, 3, 5, 2
         '''
@@ -88,8 +86,7 @@ def process_data_price_off_1(**kwargs):
 
     # Отключение источников цен, по которым даты превысили срок действия по отношению к текущей дате
     # Формирование ДФ с датами обновления цены более 7 дней назад
-    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'price', 3: 'source',
-                         4: 'show_in_report', 5: 'date_upd'}, inplace=True)
+    df01.columns = ['station_id', 'product_id', 'price', 'source', 'show_in_report', 'date_upd']
     df_1 = df01.loc[(df01['source'].isin(true_source)) & (df01['show_in_report'] == 't') &
                     (df01['date_upd'] < datetime.now().date() - timedelta(days=6))]
     df_1 = df_1.groupby(['station_id', 'source']).count().reset_index().drop(['product_id', 'price', 
@@ -122,10 +119,10 @@ def process_data_price_off_2(**kwargs):
     df01 = pd.DataFrame(prices)
 
     # Формирование ДФ с датами обновления цены более 16 дней назад
-    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'price', 3: 'source',
-                         4: 'show_in_report', 5: 'date_upd'}, inplace=True)
+    df01.columns = ['station_id', 'product_id', 'price', 'source', 'show_in_report', 'date_upd']
     df_2 = df01.loc[(df01['source'].isin(not_true_source)) & (df01['show_in_report'] == 't') &
                     (df01['date_upd'] < datetime.now().date() - timedelta(days=16))]
+    print(df_2)
     df_2 = df_2.groupby(['station_id', 'source']).count().reset_index().drop(['product_id', 'price', 
                                                                             'show_in_report', 'date_upd'], axis=1)
     st_for_upd_02 = [
@@ -158,7 +155,7 @@ def transform_data_price_on(**kwargs):
                     (df01['product_id'] == i)]['product_id'].values[0] not in check_dic:
                 if (35 >= df01[(df01['station_id'] == station_id) & (df01['source'] == source) &
                                (df01['product_id'] == i)]['price']).values[0] or \
-                        (99 <= df01[(df01['station_id'] == station_id) & (df01['source'] == source) &
+                        (110 <= df01[(df01['station_id'] == station_id) & (df01['source'] == source) &
                                     (df01['product_id'] == i)]['price']).values[0]:
                     res += 1
             else:
@@ -182,8 +179,7 @@ def transform_data_price_on(**kwargs):
     ti = kwargs['ti']
     prices = ti.xcom_pull(task_ids='sql_get_data_2')
     df01 = pd.DataFrame(prices)
-    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'price', 3: 'source',
-                         4: 'show_in_report', 5: 'date_upd'}, inplace=True)
+    df01.columns = ['station_id', 'product_id', 'price', 'source', 'show_in_report', 'date_upd']
     # ------ Формируются два ДФ и выделяется список АЗС, по которым не включены цены -------
     df02 = pd.DataFrame({'station_id': df01[df01['show_in_report'] == 't']['station_id'].unique()})
     df03 = pd.DataFrame({'station_id': df01[(df01['show_in_report'] == 'f') & (df01['price'] > 0) & \
@@ -210,7 +206,7 @@ def transform_data_price_on(**kwargs):
             df08.loc[k, 'check'] = 'OK'
 
     source_dict = {'api_gpn': 1, 'api_azsopti': 2, 'api_benzuber': 3, 'api_yandex_fuel': 4, 'api_licard': 5,
-                   'api_lukoil': 6, 'api_rncard': 10, 'api_fuelup': 11, 'manual_manual': 13,
+                   'api_lukoil': 6, 'api_sng': 7, 'api_rncard': 10, 'api_fuelup': 11, 'api_ppr': 12, 'manual_manual': 13,
                    'manual_app': 14, 'manual_phone': 15, 'manual_ppr': 16, 'manual_gazprom': 17, 'manual_other': 18,
                    'api_yandex_other': 19, }
 
@@ -273,7 +269,7 @@ def price_on_trans_update_2(**kwargs):
                 ['product_id'].values[0] not in check_dic:
             if (35 <= df01[(df01['station_id'] == station_id) & (df01['source'] == source) &
                            (df01['product_id'] == product_id)]['price']).values[0] and \
-                    (87 >= df01[(df01['station_id'] == station_id) & (df01['source'] == source) &
+                    (110 >= df01[(df01['station_id'] == station_id) & (df01['source'] == source) &
                                 (df01['product_id'] == product_id)]['price']).values[0]:
                 return product_id
         else:
@@ -294,8 +290,7 @@ def price_on_trans_update_2(**kwargs):
         # df09.columns = ['station_id', 'source', 'date_upd', 'count_fuel', 'check', 'count_err', 'amount', 'rate']
         prices = ti.xcom_pull(task_ids='sql_get_data_2')
         df01 = pd.DataFrame(prices)
-        df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'price', 3: 'source',
-                             4: 'show_in_report', 5: 'date_upd'}, inplace=True)
+        df01.columns = ['station_id', 'product_id', 'price', 'source', 'show_in_report', 'date_upd']
         # Включаем цены по каждому продукту в тех АЗС, где есть ошибки у одной или более позиций
         df__12 = df09[(df09['count_err'] != '') & (df09['source'].isin(true_source))].reset_index(level=0, drop=True)
         st_for_upd3 = []
@@ -326,7 +321,7 @@ def price_on_trans_update_3(**kwargs):
                 ['product_id'].values[0] not in check_dic:
             if (35 <= df01[(df01['station_id'] == station_id) & (df01['source'] == source) &
                            (df01['product_id'] == product_id)]['price']).values[0] and \
-                    (87 >= df01[(df01['station_id'] == station_id) & (df01['source'] == source) &
+                    (110 >= df01[(df01['station_id'] == station_id) & (df01['source'] == source) &
                                 (df01['product_id'] == product_id)]['price']).values[0]:
                 return product_id
         else:
@@ -347,8 +342,7 @@ def price_on_trans_update_3(**kwargs):
         # df09.columns = ['station_id', 'source', 'date_upd', 'count_fuel', 'check', 'count_err', 'amount', 'rate']
         prices = ti.xcom_pull(task_ids='sql_get_data_2')
         df01 = pd.DataFrame(prices)
-        df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'price', 3: 'source',
-                             4: 'show_in_report', 5: 'date_upd'}, inplace=True)
+        df01.columns = ['station_id', 'product_id', 'price', 'source', 'show_in_report', 'date_upd']
         # Включаем цены по каждому продукту в тех АЗС, где есть ошибки у одной или более позиций источник ППР
         df__13 = df09[(df09['check'] == 'OK') & (df09['count_err'] != '') &
                       (df09['source'].isin(not_true_source))].reset_index(level=0, drop=True)
@@ -380,7 +374,7 @@ def price_on_trans_update_bd(**kwargs):
                 ['product_id'].values[0] not in check_dic:
             if (35 <= df01[(df01['station_id'] == station_id) & (df01['source'] == source) &
                            (df01['product_id'] == product_id)]['price']).values[0] and \
-                    (87 >= df01[(df01['station_id'] == station_id) & (df01['source'] == source) &
+                    (110 >= df01[(df01['station_id'] == station_id) & (df01['source'] == source) &
                                 (df01['product_id'] == product_id)]['price']).values[0]:
                 return product_id
         else:
@@ -419,8 +413,7 @@ def price_on_trans_update_bd(**kwargs):
     ti = kwargs['ti']
     prices = ti.xcom_pull(task_ids='sql_get_data_3')
     df01 = pd.DataFrame(prices)
-    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'price', 3: 'source',
-                         4: 'show_in_report', 5: 'date_upd'}, inplace=True)
+    df01.columns = ['station_id', 'product_id', 'price', 'source', 'show_in_report', 'date_upd']
     # Включение цен, по которым уже есть источник цен, но появились новые виды топлива на текущую дату.
     # Формируются два ДФ и выделяется список АЗС, где некоторые виды топлива не включены.
     df10 = pd.DataFrame(
@@ -498,7 +491,7 @@ def change_price_source(**kwargs):
                 ['product_id'].values[0] not in check_dic:
             if (35 <= df01[(df01['station_id'] == station_id) & (df01['source'] == source) &
                            (df01['product_id'] == product_id)]['price']).values[0] and \
-                    (87 >= df01[(df01['station_id'] == station_id) & (df01['source'] == source) &
+                    (110 >= df01[(df01['station_id'] == station_id) & (df01['source'] == source) &
                                 (df01['product_id'] == product_id)]['price']).values[0]:
                 return product_id
         else:
@@ -511,19 +504,18 @@ def change_price_source(**kwargs):
                 return product_id
 
     source_dict = {'api_gpn': 1, 'api_azsopti': 2, 'api_benzuber': 3, 'api_yandex_fuel': 4, 'api_licard': 5,
-                   'api_lukoil': 6, 'api_rncard': 10, 'api_fuelup': 11, 'manual_manual': 13,
+                   'api_lukoil': 6, 'api_sng':7, 'api_rncard': 10, 'api_fuelup': 11, 'api_ppr': 12, 'manual_manual': 13,
                    'manual_app': 14, 'manual_phone': 15, 'manual_ppr': 16, 'manual_gazprom': 17, 'manual_other': 18,
                    'api_yandex_other': 19, }
     ti = kwargs['ti']
     prices = ti.xcom_pull(task_ids='sql_get_data_2')
     df01 = pd.DataFrame(prices)
-    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'price', 3: 'source',
-                         4: 'show_in_report', 5: 'date_upd'}, inplace=True)
+    df01.columns = ['station_id', 'product_id', 'price', 'source', 'show_in_report', 'date_upd']
 
     # Замена недостоверных источников на достоверные.
     # Формируется два ДФ для замены одних источников на другие.
     df14 = pd.DataFrame({'count_fuel_true': df01[(df01['show_in_report'] == 't') &
-                                                 (df01['source'].isin(['api_rncard', 'api_yandex_other',
+                                                 (df01['source'].isin(['api_ppr', 'api_rncard', 'api_yandex_other',
                                                                        'api_fuelup']))]
                         .groupby(['station_id', 'source']).size()}).reset_index()
     df15 = df14.groupby(['station_id'])['source'].count().reset_index().rename({'source': 'count_source'}, axis=1)
@@ -533,7 +525,7 @@ def change_price_source(**kwargs):
                                                   (df01['date_upd'] == datetime.now().date()) &
                                                   (df01['source'].isin(['api_azsgo', 'api_benzuber', 'api_yandex_fuel',
                                                                         'api_azsopti', 'api_licard', 'api_gpn',
-                                                                        'api_lukoil']))]
+                                                                        'api_lukoil', 'api_sng']))]
                         .groupby(['station_id', 'source']).size()}).reset_index()
 
     df17['rate'] = df17['source'].replace(source_dict)
@@ -591,7 +583,7 @@ def change_yf_bz(**kwargs):
                     (df01['product_id'] == i)]['product_id'].values[0] not in check_dic:
                 if (35 >= df01[(df01['station_id'] == station_id) & (df01['source'] == source) &
                                (df01['product_id'] == i)]['price']).values[0] or \
-                        (87 <= df01[(df01['station_id'] == station_id) & (df01['source'] == source) &
+                        (110 <= df01[(df01['station_id'] == station_id) & (df01['source'] == source) &
                                     (df01['product_id'] == i)]['price']).values[0]:
                     res += 1
             else:
@@ -615,8 +607,7 @@ def change_yf_bz(**kwargs):
     ti = kwargs['ti']
     prices = ti.xcom_pull(task_ids='sql_get_data_2')
     df01 = pd.DataFrame(prices)
-    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'price', 3: 'source',
-                         4: 'show_in_report', 5: 'date_upd'}, inplace=True)
+    df01.columns = ['station_id', 'product_id', 'price', 'source', 'show_in_report', 'date_upd']
 
     # ------ Формируются два ДФ и выделяется список АЗС, по которым не включены цены -------
     df02 = pd.DataFrame({'station_id': df01[df01['show_in_report'] == 't']['station_id'].unique()})
@@ -671,11 +662,10 @@ def correct_price(**kwargs):
     ti = kwargs['ti']
     prices = ti.xcom_pull(task_ids='sql_get_data_2')
     df01 = pd.DataFrame(prices)
-    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'price', 3: 'source',
-                         4: 'show_in_report', 5: 'date_upd'}, inplace=True)
+    df01.columns = ['station_id', 'product_id', 'price', 'source', 'show_in_report', 'date_upd']
 
-    # Отключение цен по общей границе для всех видов топлива (price <8 & >100)
-    df27 = df01[((df01['price'] < 8) | (df01['price'] > 100)) & (df01['show_in_report'] == 't')] \
+    # Отключение цен по общей границе для всех видов топлива (price <8 & >103)
+    df27 = df01[((df01['price'] < 11) | (df01['price'] > 110)) & (df01['show_in_report'] == 't')] \
         [['station_id', 'product_id', 'source']].reset_index().drop(['index'], axis=1)
 
     list_wrong_price = [f"""(station_id = {df27.loc[i]['station_id']} and source_type = '{df27.loc[i]['source']}' and \
@@ -693,8 +683,7 @@ def correct_diesel(**kwargs):
     ti = kwargs['ti']
     prices = ti.xcom_pull(task_ids='sql_get_data_4')
     df01 = pd.DataFrame(prices)
-    df01.rename(columns={0: 'station_id', 1: 'product_id', 2: 'price', 3: 'source',
-                         4: 'show_in_report', 5: 'date_upd'}, inplace=True)
+    df01.columns = ['station_id', 'product_id', 'price', 'source', 'show_in_report', 'date_upd']
 
     # После перевода дизеля на сезонность появилась необходимость оперативно отключать из отчёта старые данные по дизелю
     # В данном коде фильтруем все АСЗ у которых более 2 ДТ, которые идут в отчёт. Далее формируем список на отключение
@@ -728,7 +717,7 @@ def correct_diesel(**kwargs):
 
 with DAG('work_exa_2',
          default_args=default_args,
-         schedule_interval='0 2,9,16,22 * * *',
+         schedule_interval='0 1,8,11,15,21 * * *',
          catchup=False) as dag:
     # Операторы выключения и обновления бд старых цен
     off_price_6days = PythonOperator(
@@ -742,6 +731,7 @@ with DAG('work_exa_2',
     check_6days_data = BranchPythonOperator(
         task_id='check_6days_data',
         python_callable=check_6days_data,
+        provide_context=True,
     )
     skip_step1 = DummyOperator(task_id='skip_6days_data')
     join_step1 = DummyOperator(task_id='join_step_6days_data', trigger_rule='none_failed')
@@ -753,6 +743,7 @@ with DAG('work_exa_2',
     check_17days_data = BranchPythonOperator(
         task_id='check_17days_data',
         python_callable=check_17days_data,
+        provide_context=True,
     )
     skip_step2 = DummyOperator(task_id='skip_17days_data')
     join_step2 = DummyOperator(task_id='join_step_17days_data', trigger_rule='none_failed')
