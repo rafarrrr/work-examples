@@ -91,11 +91,14 @@ def process_data_price_off_1(**kwargs):
                     (df01['date_upd'] < datetime.now().date() - timedelta(days=6))]
     df_1 = df_1.groupby(['station_id', 'source']).count().reset_index().drop(['product_id', 'price', 
                                                                              'show_in_report', 'date_upd'], axis=1)
-    st_for_upd_01 = [f"""(station_id = {df_1.station_id.iloc[i]} AND source_type = '{df_1.source.iloc[i]}' \
-    AND date(updated_at) < CURRENT_DATE - 6) OR""" for i in range(df_1.shape[0])]
+    st_for_upd_01 = [
+        f"""(station_id = {df_1.station_id.iloc[i]} AND source_type = '{df_1.source.iloc[i]}' """
+        f"""AND updated_at < (CURRENT_DATE - INTERVAL '6 days')::timestamp) OR"""
+        for i in range(df_1.shape[0])
+    ]
 
     conv_string = ' '.join(st_for_upd_01)[:-3] + ';'
-    price_off1 = f"""UPDATE gs__station_product SET show_in_report = 'f' where """ + conv_string
+    price_off1 = f"""UPDATE gs__station_product SET updated_by_id = 1, show_in_report = 'f' where """ + conv_string
     # if st_for_upd_01:
     ti.xcom_push(key='price_off_6_day', value=price_off1)
     ti.xcom_push(key='marker1', value=st_for_upd_01)
@@ -126,10 +129,12 @@ def process_data_price_off_2(**kwargs):
     df_2 = df_2.groupby(['station_id', 'source']).count().reset_index().drop(['product_id', 'price', 
                                                                             'show_in_report', 'date_upd'], axis=1)
     st_for_upd_02 = [
-        f"""(station_id = {df_2.station_id.iloc[i]} AND source_type = '{df_2.source.iloc[i]}' \
-        AND date(updated_at) < CURRENT_DATE - 16) OR""" for i in range(df_2.shape[0])]
+        f"""(station_id = {df_2.station_id.iloc[i]} AND source_type = '{df_2.source.iloc[i]}' """
+        f"""AND updated_at < (CURRENT_DATE - INTERVAL '16 days')::timestamp) OR""" 
+        for i in range(df_2.shape[0])
+    ]
     conv_string = ' '.join(st_for_upd_02)[:-3] + ';'
-    price_off2 = f"""UPDATE gs__station_product SET show_in_report = 'f' where """ + conv_string
+    price_off2 = f"""UPDATE gs__station_product SET updated_by_id = 1, show_in_report = 'f' where """ + conv_string
     # if st_for_upd_02:
     ti.xcom_push(key='price_off_17_day', value=price_off2)
     ti.xcom_push(key='marker2', value=st_for_upd_02)
@@ -234,19 +239,25 @@ def price_on_trans_update_1(**kwargs):
         df__10 = df09[(df09['check'] == 'OK') & (df09['count_err'] == '') & (df09['source'].isin(true_source))]
         df__11 = df09[(df09['check'] == 'OK') & (df09['count_err'] == '') & (df09['source'].isin(not_true_source))]
         # новый блок - замена списка запросов на один
-        st_for_upd1 = [f"""(station_id = {df__10.station_id.iloc[i]} AND source_type = '{df__10.source.iloc[i]}' \
-            AND DATE(updated_at) = CURRENT_DATE) OR"""
-                       for i in range(df__10.shape[0])]
+        st_for_upd1 = [
+            f"""(station_id = {df__10.station_id.iloc[i]} AND source_type = '{df__10.source.iloc[i]}' """
+            f"""AND updated_at >= CURRENT_DATE::timestamp """
+            f"""AND updated_at < (CURRENT_DATE + INTERVAL '1 day')::timestamp) OR"""
+            for i in range(df__10.shape[0])
+        ]
 
         conv_string1 = ' '.join(st_for_upd1)[:-3] + ';'
-        price_on1 = f"""UPDATE gs__station_product SET show_in_report = 't' where """ + conv_string1
+        price_on1 = f"""UPDATE gs__station_product SET updated_by_id = 1, show_in_report = 't' where """ + conv_string1
 
-        st_for_upd2 = [f"""(station_id = {df__11.station_id.iloc[i]} AND source_type = '{df__11.source.iloc[i]}' \
-            AND DATE(updated_at) BETWEEN CURRENT_DATE-14 AND CURRENT_DATE) OR"""
-                       for i in range(df__11.shape[0])]
+        st_for_upd2 = [
+            f"""(station_id = {df__11.station_id.iloc[i]} AND source_type = '{df__11.source.iloc[i]}' """
+            f"""AND updated_at >= (CURRENT_DATE - INTERVAL '14 days')::timestamp """
+            f"""AND updated_at < (CURRENT_DATE + INTERVAL '1 day')::timestamp) OR"""
+            for i in range(df__11.shape[0])
+        ]
 
         conv_string2 = ' '.join(st_for_upd2)[:-3] + ';'
-        price_on2 = f"""UPDATE gs__station_product SET show_in_report = 't' where """ + conv_string2
+        price_on2 = f"""UPDATE gs__station_product SET updated_by_id = 1, show_in_report = 't' where """ + conv_string2
         # Запись изменений по источникам цен в БД
 
         if st_for_upd1:
@@ -300,11 +311,13 @@ def price_on_trans_update_2(**kwargs):
                 if check_price_product(df__12.loc[k, ['source']].values[0], df__12.loc[k, ['station_id']].values[0],
                                        j) is not None:
                     st_for_upd3.append(
-                        f"""(station_id = {i} AND source_type = '{df__12.source.iloc[k]}' \
-                        AND product_id = {j} AND DATE(updated_at) = CURRENT_DATE) OR""")
+                        f"""(station_id = {i} AND source_type = '{df__12.source.iloc[k]}' """
+                        f"""AND product_id = {j} AND updated_at >= CURRENT_DATE::timestamp """
+                        f"""AND updated_at < (CURRENT_DATE + INTERVAL '1 day')::timestamp) OR"""
+                    )
 
         conv_string3 = ' '.join(st_for_upd3)[:-3] + ';'
-        price_on3 = f"""UPDATE gs__station_product SET show_in_report = 't' where """ + conv_string3
+        price_on3 = f"""UPDATE gs__station_product SET updated_by_id = 1, show_in_report = 't' where """ + conv_string3
         # Запись изменений по источникам цен в БД
         if st_for_upd3:
             ti.xcom_push(key='price_on_upd_3', value=price_on3)
@@ -353,11 +366,13 @@ def price_on_trans_update_3(**kwargs):
                 if check_price_product(df__13.loc[k, ['source']].values[0], df__13.loc[k, ['station_id']].values[0],
                                        j) is not None:
                     st_for_upd4.append(
-                        f"""(station_id = {i} AND source_type = '{df__13.source.iloc[k]}' AND product_id = {j} \
-                        AND DATE(updated_at) BETWEEN CURRENT_DATE-14 AND CURRENT_DATE) OR""")
+                        f"""(station_id = {i} AND source_type = '{df__13.source.iloc[k]}' AND product_id = {j} """
+                        f"""AND updated_at >= (CURRENT_DATE - INTERVAL '14 days')::timestamp """
+                        f"""AND updated_at < (CURRENT_DATE + INTERVAL '1 day')::timestamp) OR"""
+                    )
 
         conv_string4 = ' '.join(st_for_upd4)[:-3] + ';'
-        price_on4 = f"""UPDATE gs__station_product SET show_in_report = 't' where """ + conv_string4
+        price_on4 = f"""UPDATE gs__station_product SET updated_by_id = 1, show_in_report = 't' where """ + conv_string4
         # Запись изменений по источникам цен в БД
         if st_for_upd4:
             ti.xcom_push(key='price_on_upd_4', value=price_on4)
@@ -440,18 +455,22 @@ def price_on_trans_update_bd(**kwargs):
                 if check_price_product(df12.loc[k, ['source']].values[0], i, j) is not None and \
                         check_fuel_comparison(df12.loc[k, ['source']].values[0], i, j) is None:
                     list_new_product_price.append(
-                        f"""(station_id = {str(i)} and source_type = '{df12[df12['station_id'] == i]['source'].values[0]}'\
-                         and product_id = {str(check_price_product(df12.loc[k, ['source']].values[0], i, j))} and \
-                         DATE(updated_at) = CURRENT_DATE) OR""")
+                        f"""(station_id = {str(i)} AND source_type = '{df12[df12['station_id'] == i]['source'].values[0]}' """
+                        f"""AND product_id = {str(check_price_product(df12.loc[k, ['source']].values[0], i, j))} """
+                        f"""AND updated_at >= CURRENT_DATE::timestamp """
+                        f"""AND updated_at < (CURRENT_DATE + INTERVAL '1 day')::timestamp) OR"""
+                    )
         else:
             for j in df01[(df01['station_id'] == i) & (df01['date_upd'] > datetime.now().date() - timedelta(days=8)) &
                           (df01['show_in_report'] == 'f') & (df01['source'] == df12.loc[k, 'source'])]['product_id']:
                 if check_price_product(df12.loc[k, ['source']].values[0], i, j) is not None and \
                         check_fuel_comparison(df12.loc[k, ['source']].values[0], i, j) is None:
                     list_new_product_price.append(
-                        f"""(station_id = {str(i)} and source_type = '{df12[df12['station_id'] == i]['source'].values[0]}'\
-                         and product_id = {str(check_price_product(df12.loc[k, ['source']].values[0], i, j))} and \
-                         DATE(updated_at) BETWEEN CURRENT_DATE - 7 AND CURRENT_DATE) OR""")
+                        f"""(station_id = {str(i)} AND source_type = '{df12[df12['station_id'] == i]['source'].values[0]}' """
+                        f"""AND product_id = {str(check_price_product(df12.loc[k, ['source']].values[0], i, j))} """
+                        f"""AND updated_at >= (CURRENT_DATE - INTERVAL '7 days')::timestamp """
+                        f"""AND updated_at < (CURRENT_DATE + INTERVAL '1 day')::timestamp) OR"""
+                    )
 
     # Дополнительно отключаем старые цены по источникам в df12
     df13 = df12[~df12['source'].isin(not_true_source)]
@@ -464,11 +483,12 @@ def price_on_trans_update_bd(**kwargs):
                           (df01['show_in_report'] == 't') & (
                                   df01['source'] == df13[df13['station_id'] == i]['source'].values[0])]['product_id']:
                 list_off_product_price1.append(
-                    f"""(station_id = {str(i)} and source_type = '{df13[df13['station_id'] == i]['source'].values[0]}' \
-    and product_id = {str(l)}) OR""")
+                    f"""(station_id = {str(i)} AND source_type = '{df13[df13['station_id'] == i]['source'].values[0]}' """
+                    f"""AND product_id = {str(l)}) OR"""
+                )
 
     conv_string5 = ' '.join(list_new_product_price)[:-3] + ';'
-    price_on5 = f"""UPDATE gs__station_product SET show_in_report = 't' where """ + conv_string5
+    price_on5 = f"""UPDATE gs__station_product SET updated_by_id = 1, show_in_report = 't' where """ + conv_string5
     # Запись изменений по источникам цен в БД
     if list_new_product_price:
         ti.xcom_push(key='price_on_upd_5', value=price_on5)
@@ -476,7 +496,7 @@ def price_on_trans_update_bd(**kwargs):
         ti.xcom_push(key='price_on_upd_5', value=f"SELECT 'Данных для изменения нет'")
 
     conv_string6 = ' '.join(list_off_product_price1)[:-3] + ';'
-    price_off6 = f"""UPDATE gs__station_product SET show_in_report = 'f' where """ + conv_string6
+    price_off6 = f"""UPDATE gs__station_product SET updated_by_id = 1, show_in_report = 'f' where """ + conv_string6
     # Запись изменений по источникам цен в БД
     if list_off_product_price1:
         ti.xcom_push(key='price_off_upd_6', value=price_off6)
@@ -548,9 +568,10 @@ def change_price_source(**kwargs):
     # Отключаем цены по недоствоерным источникам и включаем достоверные:
     list_off_source_unreliable = [
         f"""(station_id = {df20.loc[i]['station_id']} and source_type = '{df20.loc[i]['source_x']}') OR"""
-        for i in df20.index]
+        for i in df20.index
+    ]
     conv_string7 = ' '.join(list_off_source_unreliable)[:-3] + ';'
-    price_off7 = f"""UPDATE gs__station_product SET show_in_report = 'f' where """ + conv_string7
+    price_off7 = f"""UPDATE gs__station_product SET updated_by_id = 1, show_in_report = 'f' where """ + conv_string7
 
     if list_off_source_unreliable:
         ti.xcom_push(key='price_off_upd_7', value=price_off7)
@@ -562,11 +583,15 @@ def change_price_source(**kwargs):
         for j in df01[(df01['station_id'] == i) & (df01['date_upd'] == datetime.now().date()) &
                       (df01['show_in_report'] == 'f') & (df01['source'] == df20.loc[k, 'source_y'])]['product_id']:
             if check_price_product(df20.loc[k, ['source_y']].values[0], i, j) is not None:
-                list_on_source_unreliable.append(f"""(station_id = {i} and source_type = '{df20.loc[k]['source_y']}' \
-                and product_id = {j} and DATE(updated_at) = CURRENT_DATE) OR""")
+                list_on_source_unreliable.append(
+                    f"""(station_id = {i} and source_type = '{df20.loc[k]['source_y']}' """
+                    f"""AND product_id = {j} """
+                    f"""AND updated_at >= CURRENT_DATE::timestamp """
+                    f"""AND updated_at < (CURRENT_DATE + INTERVAL '1 day')::timestamp) OR"""
+                )
 
     conv_string8 = ' '.join(list_on_source_unreliable)[:-3] + ';'
-    price_on8 = f"""UPDATE gs__station_product SET show_in_report = 't' where """ + conv_string8
+    price_on8 = f"""UPDATE gs__station_product SET updated_by_id = 1, show_in_report = 't' where """ + conv_string8
 
     if list_on_source_unreliable:
         ti.xcom_push(key='price_on_upd_8', value=price_on8)
@@ -637,12 +662,15 @@ def change_yf_bz(**kwargs):
     list_yaf, list_bz = [], []
     for k, i in enumerate(df25['station_id'].unique()):
         if check_price(df25.loc[k, ['source_x']].values[0], i) == 'OK':
-            list_yaf.append(f"""(station_id = {i} and source_type = '{df25.loc[k]['source_y']}') OR""")
-            list_bz.append(f"""(station_id = {i} and source_type = '{df25.loc[k]['source_x']}' and \
-    DATE(updated_at) = CURRENT_DATE) OR""")
+            list_yaf.append(f"""(station_id = {i} AND source_type = '{df25.loc[k]['source_y']}') OR""")
+            list_bz.append(
+                f"""(station_id = {i} AND source_type = '{df25.loc[k]['source_x']}' """
+                f"""AND updated_at >= CURRENT_DATE::timestamp """
+                f"""AND updated_at < (CURRENT_DATE + INTERVAL '1 day')::timestamp) OR"""
+            )
 
     conv_string9 = ' '.join(list_yaf)[:-3] + ';'
-    price_off9 = f"""UPDATE gs__station_product SET show_in_report = 'f' where """ + conv_string9
+    price_off9 = f"""UPDATE gs__station_product SET updated_by_id = 1, show_in_report = 'f' where """ + conv_string9
 
     if list_yaf:
         ti.xcom_push(key='price_off_upd_9', value=price_off9)
@@ -650,7 +678,7 @@ def change_yf_bz(**kwargs):
         ti.xcom_push(key='price_off_upd_9', value=f"SELECT 'Данных для изменения нет'")
 
     conv_string10 = ' '.join(list_bz)[:-3] + ';'
-    price_on10 = f"""UPDATE gs__station_product SET show_in_report = 't' where """ + conv_string10
+    price_on10 = f"""UPDATE gs__station_product SET updated_by_id = 1, show_in_report = 't' where """ + conv_string10
 
     if list_bz:
         ti.xcom_push(key='price_on_upd_10', value=price_on10)
@@ -668,11 +696,14 @@ def correct_price(**kwargs):
     df27 = df01[((df01['price'] < 11) | (df01['price'] > 110)) & (df01['show_in_report'] == 't')] \
         [['station_id', 'product_id', 'source']].reset_index().drop(['index'], axis=1)
 
-    list_wrong_price = [f"""(station_id = {df27.loc[i]['station_id']} and source_type = '{df27.loc[i]['source']}' and \
-    product_id = {df27.loc[i]['product_id']}) OR""" for i in df27.index]
+    list_wrong_price = [
+        f"""(station_id = {df27.loc[i]['station_id']} AND source_type = '{df27.loc[i]['source']}' """
+        f"""AND product_id = {df27.loc[i]['product_id']}) OR""" 
+        for i in df27.index
+    ]
 
     conv_string11 = ' '.join(list_wrong_price)[:-3] + ';'
-    price_off11 = f"""UPDATE gs__station_product SET show_in_report = 'f' where """ + conv_string11
+    price_off11 = f"""UPDATE gs__station_product SET updated_by_id = 1, show_in_report = 'f' where """ + conv_string11
     if list_wrong_price:
         ti.xcom_push(key='price_off_upd_11', value=price_off11)
     else:
@@ -706,7 +737,7 @@ def correct_diesel(**kwargs):
                                         row: f"(station_id = {row['station_id']} and product_id = {row['product_id']} and show_in_report = 't') OR",
                                     axis=1).str.cat(sep=' ')
         conv_string12 = conv_string12[:-3] + ';'
-        price_diesel_off12 = f"""UPDATE gs__station_product SET show_in_report = 'f' where """ + conv_string12
+        price_diesel_off12 = f"""UPDATE gs__station_product SET updated_by_id = 1, show_in_report = 'f' where """ + conv_string12
     else:
         conv_string12 = ''
     if conv_string12:
@@ -775,11 +806,6 @@ with DAG('work_exa_2',
              "{{ti.xcom_pull(task_ids='price_new_on_upd_1', key='price_on_upd_2')}}"],
         conn_id='datomt'
     )
-    # update_on_new_price_2 = PostgresOperator(
-    #     task_id='update_on_new_price_2',
-    #     sql="{{ ti.xcom_pull(task_ids='price_new_on_upd_1', key='price_on_upd_2')}}",
-    #     postgres_conn_id='datomt'
-    # )
     update_on_new_price_3 = SQLExecuteQueryOperator(
         task_id='update_on_new_price_3',
         sql="{{ti.xcom_pull(task_ids='price_new_on_upd_2', key='price_on_upd_3')}}",
